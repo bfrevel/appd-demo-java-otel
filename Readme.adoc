@@ -1,0 +1,136 @@
+= AppDynamics OpenTelemetry Java Demo
+:toc: 
+:sectnums:
+
+== Java Applications
+
+=== Build Application
+
+.Gradle Build
+[source, sh]
+----
+./gradlew -p services clean bootJar
+----
+
+=== Prepare the Environment
+
+.Create postgres databases for customer-service and product-service
+[source, sh]
+----
+# start customer-postgres
+docker run \
+  -d \
+  --name customer-postgres \
+  -e POSTGRES_PASSWORD=postgrespw \
+  -p 5412:5432 \
+  postgres:14.2-alpine
+
+# start product-postgres
+docker run \
+  -d \
+  --name product-postgres \
+  -e POSTGRES_PASSWORD=postgrespw \
+  -p 5422:5432 \
+  postgres:14.2-alpine
+----
+
+=== Run the Kubernetes Services
+
+.Run the Java Applications without OTel
+[source, sh]
+----
+nohup java \
+  -Dspring.profiles.active=local \
+  -jar services/customer-service/build/libs/customer-service-0.0.1-SNAPSHOT.jar \
+  > nohup.customer-service.out 2>&1 &
+nohup java \
+  -Dspring.profiles.active=local \
+  -jar services/product-service/build/libs/product-service-0.0.1-SNAPSHOT.jar \
+  > nohup.product-service.out 2>&1 &
+nohup java \
+  -Dspring.profiles.active=local \
+  -jar services/order-service/build/libs/order-service-0.0.1-SNAPSHOT.jar \
+  > nohup.order-service.out 2>&1 &
+nohup java \
+  -Dspring.profiles.active=local \
+  -jar services/load-service/build/libs/load-service-0.0.1-SNAPSHOT.jar \
+  > nohup.load-service.out 2>&1 &
+----
+
+=== Check Application Status
+
+.Check Application Status
+[source, sh]
+----
+➜  appd-demo-java-otel git:(main) ✗ tail -4 nohup.load-service.out
+
+2022-06-08 10:18:26.984  INFO 125 --- [   scheduling-1] c.a.o.d.l.s.components.LoadScheduler     : [x] created order: '{"id":"861aec9e-baaa-4b37-9c9e-51f2ea7e72e9","customer":{"id":"24932dcd-a40d-4644-8343-305345da3c38","name":"Bluejam"},"positions":[{"quantity":2,"product":{"id":"3071b172-4091-4278-996c-7211b9ced5e0","name":"Limes","price":5.00}},{"quantity":3,"product":{"id":"d70a79a0-b446-49d7-ad1b-3d00b978edbc","name":"Truffle Cups Green","price":54.18}}]}'
+2022-06-08 10:18:27.021  INFO 125 --- [   scheduling-1] c.a.o.d.l.s.components.LoadScheduler     : [x] customer health: '{"status":"UP"}'
+2022-06-08 10:18:27.055  INFO 125 --- [   scheduling-1] c.a.o.d.l.s.components.LoadScheduler     : [x] product health: '{"status":"UP"}'
+2022-06-08 10:18:27.077  INFO 125 --- [   scheduling-1] c.a.o.d.l.s.components.LoadScheduler     : [x] order health: '{"status":"UP"}'
+----
+
+=== Challenge
+
+* Create Jaeger All in One instance
+
+* Configure OpenTelemetry Collector
+** Listening on port `4317`
+** With exporters for:
+*** Logging
+*** Jaeger
+*** AppDynamics CSaaS
+*** AppDynamics Cloud
+
+* Download the OpenTelemetry Java Agent and use Automatic Instrumentation to send traces from the Java Applications to the OpenTelemetry Collector
+
+
+== Java Applications on kubernetes
+
+=== Build Images
+
+.Gradle Build
+[source, sh]
+----
+./gradlew -p services clean bootBuildImage
+----
+
+=== Prepare the Environment 
+[source, sh]
+----
+kubectl create namespace appd-demo-java-otel
+----
+
+=== Run the Kubernetes Services
+
+[source, sh]
+----
+kubectl create namespace appd-demo-java-otel
+
+kubectl -n appd-demo-java-otel apply -f k8s
+----
+
+=== Check Application Status
+
+[source, sh]
+----
+➜  appd-demo-java-otel git:(main) ✗ kdev logs load-service-6b9c4678d5-75cgh
+
+2022-06-08 08:09:40.387  INFO 1 --- [   scheduling-1] c.a.o.d.l.s.components.LoadScheduler     : [x] created order: '{"id":"66cc0a8e-d32f-4faf-bc5d-5cb21220360a","customer":{"id":"24932dcd-a40d-4644-8343-305345da3c38","name":"Bluejam"},"positions":[{"quantity":2,"product":{"id":"3071b172-4091-4278-996c-7211b9ced5e0","name":"Limes","price":5.00}},{"quantity":3,"product":{"id":"d70a79a0-b446-49d7-ad1b-3d00b978edbc","name":"Truffle Cups Green","price":54.18}}]}'
+2022-06-08 08:09:40.422  INFO 1 --- [   scheduling-1] c.a.o.d.l.s.components.LoadScheduler     : [x] customer health: '{"status":"UP","groups":["liveness","readiness"]}'
+2022-06-08 08:09:40.454  INFO 1 --- [   scheduling-1] c.a.o.d.l.s.components.LoadScheduler     : [x] product health: '{"status":"UP","groups":["liveness","readiness"]}'
+2022-06-08 08:09:40.493  INFO 1 --- [   scheduling-1] c.a.o.d.l.s.components.LoadScheduler     : [x] order health: '{"status":"UP","groups":["liveness","readiness"]}'
+----
+
+
+=== Challenge
+
+* Configure OpenTelemetry Operator
+* Configure a OpenTelemetry Collector
+** Listening on port `4317`
+** With exporters for:
+*** Logging
+*** AppDynamics CSaaS
+*** AppDynamics Cloud
+
+* Use OpenTelemetry auto-instrumentation injection to send traces to the OpenTelemetry Collector.

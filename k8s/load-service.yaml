@@ -1,0 +1,21 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: load-service
+spec:
+  selector:
+    matchLabels:
+      app: load-service
+  template:
+    metadata:
+      labels:
+        app: load-service
+    spec:
+      containers:
+        - name: load
+          image: appdynamics/demo/java/otel/load-service
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: JAVA_TOOL_OPTIONS
+              value: "-Dspring.profiles.active=k8s"
