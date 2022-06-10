@@ -119,6 +119,168 @@ nohup java \
 
 * Download the OpenTelemetry Java Agent and use Automatic Instrumentation to send traces from the Java Applications to the OpenTelemetry Collector
 
+=== Solution
+
+* Create Jaeger All in One instance
++
+--
+In this solution, we use the OpenTelemetry Collector docker image. To ensure, that the Collector can send traces to the Jaeger docker image, we need to create a docker network.
+
+.Create docker network
+[source, sh]
+----
+docker network create appd-demo-java-otel-network
+----
+
+.Start Jaeger All in One
+[source, sh]
+----
+docker run \
+  --rm \
+  --name jaeger \
+  --network=appd-demo-java-otel-network \
+  -e COLLECTOR_ZIPKIN_HOST_PORT=:9411 \
+  -p 5775:5775/udp \
+  -p 6831:6831/udp \
+  -p 6832:6832/udp \
+  -p 5778:5778 \
+  -p 16686:16686 \
+  -p 14268:14268 \
+  -p 14250:14250 \
+  -p 9411:9411 \
+  jaegertracing/all-in-one:latest
+----
+--
+
+
+* Configure OpenTelemetry Collector
++
+--
+.Create OpenTelemetry Collector Config
+
+Create adapt the properties and execute the command to generate your OpenTelemetry configuration file `otel-collector-config.yaml`
+
+[source, sh]
+----
+cat << EOF > otel-collector-config.yaml
+receivers:
+  otlp:
+    protocols:
+      grpc:
+
+processors:
+  resource:
+    attributes:
+      - key: appdynamics.controller.account
+        action: upsert
+        value: "{{APPDYNAMICS_CSAAS_CONTROLLER_ACCOUNT}}"
+      - key: appdynamics.controller.host
+        action: upsert
+        value: "{{APPDYNAMICS_CSAAS_CONTROLLER_HOST}}"
+      - key: appdynamics.controller.port
+        action: upsert
+        value: 443
+      - key: service.namespace
+        action: upsert
+        value: appd-demo-java-otel
+  batch:
+    timeout: 30s
+    send_batch_size: 90
+
+
+exporters:
+  otlphttp:
+    endpoint: "{{APPDYNAMICS_CSAAS_CONTROLLER_OTEL_ENDPOINT}}"
+    headers: {"x-api-key": "{{APPDYNAMICS_CSAAS_CONTROLLER_OTEL_API_KEY}}"}
+
+  logging:
+    loglevel: debug
+    sampling_initial: 5
+    sampling_thereafter: 200
+
+  jaeger:
+    endpoint: jaeger:14250
+    tls:
+      insecure: true
+
+  otlp:    
+    endpoint:  {{APPDYNAMICS_CLOUD_OTEL_ENDPOINT}}           
+    auth:
+      authenticator: oauth2client
+
+extensions:
+  oauth2client:
+    client_id: {{APPDYNAMICS_CLOUD_OTEL_AUTH_CLIENT_ID}} 
+    client_secret: {{APPDYNAMICS_CLOUD_OTEL_AUTH_CLIENT_SECRET}}
+    token_url: >-
+      {{APPDYNAMICS_CLOUD_OTEL_AUTH_TOKEN_URL}}
+    timeout: 1m
+
+
+service:
+  extensions: [oauth2client]
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [resource, batch]
+      exporters: [logging, jaeger, otlphttp, otlp]
+EOF
+----
+
+.Start OpenTelemetry Collector 
+[source, sh]
+----
+docker run \
+  --rm \
+  --name otel-collector \
+  --network=appd-demo-java-otel-network \
+  -v "${PWD}/otel-collector-config.yaml":/otel-collector-config.yaml \
+  -p 4317:4317 \
+  ghcr.io/open-telemetry/opentelemetry-collector-releases/opentelemetry-collector-contrib:0.52.0 \
+  --config otel-collector-config.yaml
+----
+--
+
+* Integrate OpenTelemetry Java Agent
++
+--
+.Download Otel Java Agent
+[source, sh]
+----
+mkdir -p java/lib/otel-java-agent
+cd lib && { curl -O -L https://github.com/open-telemetry/opentelemetry-java-instrumentation/releases/latest/download/opentelemetry-javaagent.jar ; cd -; }
+----
+
+.Run Applications with OpenTelemetry Agent 
+[source, sh]
+----
+nohup java \
+  -javaagent:${PWD}/lib/opentelemetry-javaagent.jar \
+  -Dotel.service.name=customer-service \
+  -Dspring.profiles.active=local \
+  -jar ../services/customer-service/build/libs/customer-service-0.0.1-SNAPSHOT.jar \
+  > nohup.customer-service.out 2>&1 &
+nohup java \
+  -javaagent:${PWD}/lib/opentelemetry-javaagent.jar \
+  -Dotel.service.name=product-service \
+  -Dspring.profiles.active=local \
+  -jar ../services/product-service/build/libs/product-service-0.0.1-SNAPSHOT.jar \
+  > nohup.product-service.out 2>&1 &
+nohup java \
+  -javaagent:${PWD}/lib/opentelemetry-javaagent.jar \
+  -Dotel.service.name=order-service \
+  -Dspring.profiles.active=local \
+  -jar ../services/order-service/build/libs/order-service-0.0.1-SNAPSHOT.jar \
+  > nohup.order-service.out 2>&1 &
+nohup java \
+  -Dspring.profiles.active=local \
+  -jar ../services/load-service/build/libs/load-service-0.0.1-SNAPSHOT.jar \
+  > nohup.load-service.out 2>&1 &
+----
+--
+
+After a while you can see the services in your local Jaeger, AppDynamics CSaaS and AppDynamics Cloud.
+
 
 == Java Applications on kubernetes
 
@@ -167,3 +329,135 @@ kubectl -n appd-demo-java-otel apply -f k8s
 *** AppDynamics Cloud
 
 * Use OpenTelemetry auto-instrumentation injection to send traces to the OpenTelemetry Collector.
+
+=== Solution
+
+
+* Configure OpenTelemetry Operator
++
+--
+Before you can install the OpenTelemetry Operator, you need to install `Cert-Manager` in your kubernetes cluster (https://cert-manager.io/docs/installation/).
+
+[source, sh]
+----
+kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.8.0/cert-manager.yaml
+----
+
+Once this is done, you can continue and install the OpenTelemetry Operator (https://github.com/open-telemetry/opentelemetry-operator).
+[source, sh]
+----
+kubectl apply -f https://github.com/open-telemetry/opentelemetry-operator/releases/latest/download/opentelemetry-operator.yaml
+----
+--
+
+
+* Configure OpenTelemetry Collector
++
+--
+[source, sh]
+----
+kubectl -n appd-demo-java-otel apply -f - <<EOF
+apiVersion: opentelemetry.io/v1alpha1
+kind: OpenTelemetryCollector
+metadata:
+  name: otel
+spec:
+  image: ghcr.io/open-telemetry/opentelemetry-collector-releases/opentelemetry-collector-contrib:0.52.0
+  config: |
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+
+    processors:
+      resource:
+        attributes:
+          - key: appdynamics.controller.account
+            action: upsert
+            value: "{{APPDYNAMICS_CSAAS_CONTROLLER_ACCOUNT}}"
+          - key: appdynamics.controller.host
+            action: upsert
+            value: "{{APPDYNAMICS_CSAAS_CONTROLLER_HOST}}"
+          - key: appdynamics.controller.port
+            action: upsert
+            value: 443
+          - key: service.namespace
+            action: upsert
+            value: appd-demo-java-otel
+      batch:
+        timeout: 30s
+        send_batch_size: 90
+
+
+    exporters:
+      otlphttp:
+        endpoint: "{{APPDYNAMICS_CSAAS_CONTROLLER_OTEL_ENDPOINT}}"
+        headers: {"x-api-key": "{{APPDYNAMICS_CSAAS_CONTROLLER_OTEL_API_KEY}}"}
+
+      logging:
+        loglevel: debug
+        sampling_initial: 5
+        sampling_thereafter: 200
+
+      otlp:    
+        endpoint:  {{APPDYNAMICS_CLOUD_OTEL_ENDPOINT}}           
+        auth:
+          authenticator: oauth2client
+
+    extensions:
+      oauth2client:
+        client_id: {{APPDYNAMICS_CLOUD_OTEL_AUTH_CLIENT_ID}} 
+        client_secret: {{APPDYNAMICS_CLOUD_OTEL_AUTH_CLIENT_SECRET}}
+        token_url: >-
+          {{APPDYNAMICS_CLOUD_OTEL_AUTH_TOKEN_URL}}
+        timeout: 1m
+
+
+    service:
+      extensions: [oauth2client]
+      pipelines:
+        traces:
+          receivers: [otlp]
+          processors: [resource, batch]
+          exporters: [logging, otlphttp, otlp]
+EOF
+----
+--
+
+* Integrate OpenTelemetry Java Agent
++
+--
+.Create OpenTelemetry Instrumentation
+[source, sh]
+----
+kubectl -n appd-demo-java-otel  apply -f - <<EOF
+apiVersion: opentelemetry.io/v1alpha1
+kind: Instrumentation
+metadata:
+  name: my-instrumentation
+spec:
+  exporter:
+    endpoint: http://otel-collector:4317
+  propagators:
+    - tracecontext
+    - baggage
+    - b3
+  sampler:
+    type: parentbased_traceidratio
+    argument: "0.25"
+EOF
+----
+
+.Set Auto-Instrumentation Annotation for services
+[source, sh]
+----
+kubectl -n appd-demo-java-otel patch deployment customer-service \
+  -p '{"spec": {"template":{"metadata":{"annotations":{"instrumentation.opentelemetry.io/inject-java":"true"}}}} }'
+
+kubectl -n appd-demo-java-otel patch deployment product-service \
+  -p '{"spec": {"template":{"metadata":{"annotations":{"instrumentation.opentelemetry.io/inject-java":"true"}}}} }'
+
+kubectl -n appd-demo-java-otel patch deployment order-service \
+  -p '{"spec": {"template":{"metadata":{"annotations":{"instrumentation.opentelemetry.io/inject-java":"true"}}}} }'
+----
+--
