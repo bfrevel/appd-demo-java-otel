@@ -2,6 +2,41 @@
 :toc: 
 :sectnums:
 
+== Demo Application Architecture
+
+
+[ditaa]
+----
+
+
+/=-----\
+|      |
+| load |
+|      |
+\---+--/
+    : 
+    |
+    | 0. HTTP
+    |
+    v 
++---------------+              +------------------+           +-------------------+
+|               |   1. HTTP    |                  |   JDBC    | {s}               |
+|               +------------->| customer-service +---------->| customer-postgres |
+| order-service |              |                  |           |                   |
+|               +--+           +------------------+           +-------------------+
+|               |  |
++---------------+  |
+                   |
+                   |
+                   |           +-----------------+            +------------------+
+                   |  2. HTTP  |                 |    JDBC    | {s}              |
+                   +---------->| product-service +----------->| product-postgres |
+                               |                 |            |                  |
+                               +-----------------+            +------------------+
+       
+----
+
+
 == Java Applications
 
 === Build Application
