@@ -105,8 +105,6 @@ kubectl create namespace appd-demo-java-otel
 
 [source, sh]
 ----
-kubectl create namespace appd-demo-java-otel
-
 kubectl -n appd-demo-java-otel apply -f k8s
 ----
 

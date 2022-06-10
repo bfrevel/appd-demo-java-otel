@@ -3,13 +3,15 @@ package com.appdynamics.otel.demo.product.service.controllers;
 import java.util.Optional;
 import java.util.UUID;
 
-import com.appdynamics.otel.demo.product.service.entities.Product;
-import com.appdynamics.otel.demo.product.service.repositories.ProductRepository;
-
+import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.server.ResponseStatusException;
+
+import com.appdynamics.otel.demo.product.service.entities.Product;
+import com.appdynamics.otel.demo.product.service.repositories.ProductRepository;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.log4j.Log4j2;
@@ -25,8 +27,13 @@ public class ProductController {
     @GetMapping(path = "/{id}")
     public Optional<Product> get(@PathVariable UUID id) {
         Optional<Product> product = productRepository.findById(id);
-        log.info("[x] returning '{}}'", product);
-        return product;
+        if (product.isPresent()) {
+            log.info("[x] returning '{}}'", product);
+            return product;
+        } else {
+            log.error("[x] Product not found '{}}'", id);
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Product Not Found");
+        }
     }
 
 }

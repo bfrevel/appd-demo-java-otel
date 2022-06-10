@@ -5,6 +5,15 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
+import org.springframework.http.HttpStatus;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.client.HttpClientErrorException;
+import org.springframework.web.client.RestTemplate;
+import org.springframework.web.server.ResponseStatusException;
+
 import com.appdynamics.otel.demo.order.service.config.CustomerServiceConfigProperties;
 import com.appdynamics.otel.demo.order.service.config.ProductServiceConfigProperties;
 import com.appdynamics.otel.demo.order.service.entities.Customer;
@@ -13,12 +22,6 @@ import com.appdynamics.otel.demo.order.service.entities.OrderPosition;
 import com.appdynamics.otel.demo.order.service.entities.Product;
 import com.appdynamics.otel.demo.order.service.entities.request.OrderRequest;
 import com.appdynamics.otel.demo.order.service.entities.request.OrderRequestPosition;
-
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
-import org.springframework.web.client.RestTemplate;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.log4j.Log4j2;
@@ -39,26 +42,39 @@ public class OrderController {
     @PostMapping()
     public Optional<Order> post(@RequestBody OrderRequest orderRequest) {
 
-        Customer customer = restTemplate
-                .getForEntity(
-                        String.format(SERVICE_URL, customerServiceConfigProperties.getHost(),
-                                customerServiceConfigProperties.getPort(), "customer")
-                                + "/{id}",
-                        Customer.class, orderRequest.getCustomerId())
-                .getBody();
-        log.info(LOG_MSG, "customer", customer);
+        Customer customer = null;
+        try {
+            customer = restTemplate
+                    .getForEntity(
+                            String.format(SERVICE_URL,
+                                    customerServiceConfigProperties.getHost(),
+                                    customerServiceConfigProperties.getPort(),
+                                    "customer")
+                                    + "/{id}",
+                            Customer.class, orderRequest.getCustomerId())
+                    .getBody();
+            log.info(LOG_MSG, "customer", customer);
+        } catch (HttpClientErrorException exception) {
+            log.error("[x] Customer not found '{}}'", orderRequest.getCustomerId());
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Customer Not Found");
+        }
 
         List<OrderPosition> positions = new LinkedList<>();
         for (OrderRequestPosition requestPosition : orderRequest.getPositions()) {
-            Product product = restTemplate
-                    .getForEntity(String.format(SERVICE_URL,
-                            productServiceConfigProperties.getHost(),
-                            productServiceConfigProperties.getPort(), "product") + "/{id}",
-                            Product.class,
-                            requestPosition.getProductId())
-                    .getBody();
-            positions.add(new OrderPosition(requestPosition.getQuantity(), product));
-            log.info(LOG_MSG, "product", product);
+            try {
+                Product product = restTemplate
+                        .getForEntity(String.format(SERVICE_URL,
+                                productServiceConfigProperties.getHost(),
+                                productServiceConfigProperties.getPort(), "product") + "/{id}",
+                                Product.class,
+                                requestPosition.getProductId())
+                        .getBody();
+                log.info(LOG_MSG, "product", product);
+                positions.add(new OrderPosition(requestPosition.getQuantity(), product));
+            } catch (HttpClientErrorException exception) {
+                log.error("[x] Product not found '{}}'", requestPosition.getProductId());
+                throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Product Not Found");
+            }
         }
 
         Order order = new Order(UUID.randomUUID(), customer, positions);

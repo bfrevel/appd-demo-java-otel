@@ -3,13 +3,15 @@ package com.appdynamics.otel.demo.customer.service.controllers;
 import java.util.Optional;
 import java.util.UUID;
 
-import com.appdynamics.otel.demo.customer.service.entities.Customer;
-import com.appdynamics.otel.demo.customer.service.repositories.CustomerRepository;
-
+import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.server.ResponseStatusException;
+
+import com.appdynamics.otel.demo.customer.service.entities.Customer;
+import com.appdynamics.otel.demo.customer.service.repositories.CustomerRepository;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.log4j.Log4j2;
@@ -25,8 +27,13 @@ public class CustomerController {
     @GetMapping(path = "/{id}")
     public Optional<Customer> get(@PathVariable UUID id) {
         Optional<Customer> customer = customerRepository.findById(id);
-        log.info("[x] returning '{}}'", customer);
-        return customer;
+        if (customer.isPresent()) {
+            log.info("[x] returning '{}}'", customer);
+            return customer;
+        } else {
+            log.error("[x] Customer not found '{}}'", id);
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Customer Not Found");
+        }
     }
 
 }
